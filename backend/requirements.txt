@@ -1,0 +1,8 @@
+pandas
+openpyxl
+langgraph
+langchain-openai
+pydantic
+deepagents
+tavily-python
+python-dotenv
