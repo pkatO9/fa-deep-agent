@@ -1,105 +1,88 @@
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+  --bg: #f5f3ee;
+  --panel: #fffdfa;
+  --panel-raised: #f8f3e9;
+  --sand-tint: #efe7d7;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #0f172a;
+  --ink: #181913;
+  --ink-soft: #2b2d23;
+  --muted: #5f6357;
 
+  --border: #d9d3c6;
+  --border-strong: #c7beac;
+
+  --accent: #5f7463;
+  --accent-strong: #3f5c49;
+  --accent-soft: #86a58d;
+  --kpi-bg: #f9f5ec;
+  --kpi-border: #cfc5b3;
+  --summary-bg: #f8f3e9;
+  --summary-accent: #466753;
+
+  --metric-positive: #2f6b4d;
+  --metric-warn: #8b5f2f;
+  --danger: #b24343;
+
+  --radius-md: 0.72rem;
+  --radius-lg: 1rem;
+
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-14: 3.5rem;
+  --space-16: 4rem;
+
+  --shadow-soft: 0 10px 26px rgba(34, 35, 26, 0.08);
+  --shadow-focus: 0 8px 16px rgba(64, 92, 74, 0.2);
+
+  --font-display: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, "Times New Roman", serif;
+  --font-body: "Avenir Next", "Avenir", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+  --fs-display: clamp(2.3rem, 5.4vw, 3.45rem);
+  --fs-title: clamp(1.62rem, 2vw, 2.05rem);
+  --fs-section: clamp(1.23rem, 1.6vw, 1.52rem);
+  --fs-body: 1.05rem;
+  --fs-meta: 0.8rem;
+
+  --fw-regular: 430;
+  --fw-medium: 540;
+  --fw-semibold: 640;
+  --fw-bold: 730;
+
+  font-family: var(--font-body);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+* {
+  box-sizing: border-box;
 }
 
+html,
+body,
 #root {
   width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 2rem;
+  min-height: 100%;
 }
 
-.glass-card {
-  background: rgba(30, 41, 59, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 1rem;
-  padding: 1.5rem;
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+body {
+  margin: 0;
+  min-width: 320px;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 14% 9%, rgba(95, 116, 99, 0.16), transparent 44%),
+    radial-gradient(circle at 88% 0%, rgba(184, 168, 132, 0.16), transparent 40%),
+    var(--bg);
 }
 
-.primary-button {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  color: white;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: 0.5rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.primary-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
-}
-
-.primary-button:disabled {
-  background: #475569;
-  cursor: not-allowed;
-  transform: none;
-}
-
-input, textarea, select {
-  background: #1e293b;
-  border: 1px solid #334155;
-  color: white;
-  padding: 0.75rem;
-  border-radius: 0.5rem;
-  width: 100%;
-  margin-top: 0.5rem;
-  outline: none;
-}
-
-input:focus {
-  border-color: #3b82f6;
-}
-
-label {
-  font-size: 0.875rem;
-  color: #94a3b8;
-  font-weight: 500;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 1.5rem;
-}
-
-.status-pill {
-  padding: 0.25rem 0.75rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.status-waiting { background: #334155; color: #94a3b8; }
-.status-running { background: #1e3a8a; color: #60a5fa; animation: pulse 2s infinite; }
-.status-done { background: #064e3b; color: #34d399; }
-
-@keyframes pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.5; }
-  100% { opacity: 1; }
+a {
+  color: inherit;
 }
