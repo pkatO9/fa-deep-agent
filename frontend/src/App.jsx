@@ -31,7 +31,8 @@ function App() {
     formData.append('user_profile', JSON.stringify(profile));
 
     try {
-      const response = await axios.post(`${import.meta.env.VITE_API_URL}/upload`, formData, {
+      console.log(import.meta.env.VITE_API_URL);
+      const response = await axios.post('https://fa-deep-agent.onrender.com/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       setResults(response.data);
