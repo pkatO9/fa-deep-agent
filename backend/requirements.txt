@@ -6,3 +6,6 @@ pydantic
 deepagents
 tavily-python
 python-dotenv
+fastapi
+uvicorn
+python-multipart
