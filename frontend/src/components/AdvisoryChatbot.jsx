@@ -4,8 +4,8 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MessageCircle, Send, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import { API_BASE } from '../constants/config';
+import { looksLikeMarkdown } from '../utils/markdown';
 
 /**
  * Chatbot that answers questions using the full advisory report context
@@ -23,10 +23,9 @@ export function AdvisoryChatbot({ advisoryResults, className = '' }) {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
-  const handleSubmit = useCallback(
-    async (e) => {
-      e.preventDefault();
-      const trimmed = input.trim();
+  const submitMessage = useCallback(
+    async (messageText) => {
+      const trimmed = (messageText ?? input).trim();
       if (!trimmed || loading || !advisoryResults) return;
 
       const userMsg = { role: 'user', content: trimmed };
@@ -56,6 +55,14 @@ export function AdvisoryChatbot({ advisoryResults, className = '' }) {
     [input, loading, advisoryResults, messages, scrollToBottom]
   );
 
+  const handleSubmit = useCallback(
+    (e) => {
+      e.preventDefault();
+      submitMessage(input);
+    },
+    [input, submitMessage]
+  );
+
   const suggestionPrompts = [
     'What are my top 3 next steps?',
     'Summarize my risk level and key concerns.',
@@ -65,9 +72,9 @@ export function AdvisoryChatbot({ advisoryResults, className = '' }) {
 
   const handleSuggestion = useCallback(
     (text) => {
-      setInput(text);
+      submitMessage(text);
     },
-    []
+    [submitMessage]
   );
 
   if (!advisoryResults) return null;
@@ -91,7 +98,7 @@ export function AdvisoryChatbot({ advisoryResults, className = '' }) {
 
       {expanded && (
         <div className="chatbot-body">
-          <div className="chatbot-messages" ref={scrollRef}>
+          <div className="chatbot-messages">
             {messages.length === 0 && (
               <div className="chatbot-empty">
                 <p>Ask questions about your portfolio, risk, allocation, strategy, or next steps.</p>
@@ -110,7 +117,7 @@ export function AdvisoryChatbot({ advisoryResults, className = '' }) {
               </div>
             )}
             {messages.map((msg, idx) => (
-              <div key={idx} className={`chat-message chat-message-${msg.role}`}>
+              <div key={`${msg.role}-${idx}`} className={`chat-message chat-message-${msg.role}`}>
                 <div className="chat-message-content">
                   {msg.role === 'assistant' && looksLikeMarkdown(msg.content) ? (
                     <div className="markdown-body">
@@ -128,6 +135,7 @@ export function AdvisoryChatbot({ advisoryResults, className = '' }) {
                 <span>Thinking…</span>
               </div>
             )}
+            <div ref={scrollRef} aria-hidden="true" />
           </div>
 
           <form onSubmit={handleSubmit} className="chatbot-form">
@@ -140,7 +148,12 @@ export function AdvisoryChatbot({ advisoryResults, className = '' }) {
               disabled={loading}
               aria-label="Chat message"
             />
-            <button type="submit" className="chatbot-send" disabled={loading || !input.trim()}>
+            <button
+              type="submit"
+              className="chatbot-send"
+              disabled={loading || !input.trim()}
+              aria-label="Send message"
+            >
               <Send size={18} />
             </button>
           </form>
@@ -160,8 +173,3 @@ AdvisoryChatbot.propTypes = {
   advisoryResults: PropTypes.object,
   className: PropTypes.string,
 };
-
-function looksLikeMarkdown(text) {
-  if (typeof text !== 'string') return false;
-  return /(^#{1,6}\s)|(^[-*]\s)|(^\d+\.\s)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)]+\))/m.test(text);
-}
