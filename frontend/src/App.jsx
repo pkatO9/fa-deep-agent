@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import axios from 'axios';
 import PropTypes from 'prop-types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -19,8 +18,12 @@ import {
   ListChecks,
   Compass,
   Sparkles,
+  Circle,
 } from 'lucide-react';
+import { AdvisoryChatbot } from './components/AdvisoryChatbot';
 import './App.css';
+
+const API_BASE =  'http://localhost:8000';
 
 const SECTION_CONFIG = [
   { id: 'risk', title: 'Risk Assessment', icon: Shield, resultKey: 'risk_analysis', metaKey: 'risk_analysis_meta', metricState: 'warn' },
@@ -717,6 +720,7 @@ function App() {
     goals: 'Early retirement by 45',
   });
   const [loading, setLoading] = useState(false);
+  const [progressSteps, setProgressSteps] = useState([]);
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
   const [expandedSections, setExpandedSections] = useState({
@@ -765,27 +769,81 @@ function App() {
     setLoading(true);
     setResults(null);
     setError(null);
+    setProgressSteps([]);
 
     const formData = new FormData();
     formData.append('file', file);
     formData.append('user_profile', JSON.stringify(profile));
 
     try {
-      const response = await axios.post('https://fa-deep-agent.onrender.com/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+      const response = await fetch(`${API_BASE}/upload/stream`, {
+        method: 'POST',
+        body: formData,
       });
-      setResults(response.data);
-      setExpandedSections({
-        risk: false,
-        allocation: false,
-        behavior: false,
-        strategy: true,
-        executive: false,
-      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        let detail = `HTTP ${response.status}`;
+        try {
+          const errBody = JSON.parse(text);
+          detail = errBody.detail || detail;
+        } catch {
+          if (text) detail = text.slice(0, 200);
+        }
+        throw new Error(detail);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const chunk of lines) {
+          const match = chunk.match(/^data:\s*(.+)$/m);
+          if (!match) continue;
+          try {
+            const event = JSON.parse(match[1]);
+            if (event.event === 'phase') {
+              setProgressSteps((prev) => {
+                const markedDone = prev.map((s) => (s.status === 'active' ? { ...s, status: 'done' } : s));
+                const without = markedDone.filter((s) => s.id !== event.phase);
+                return [...without, { id: event.phase, label: event.message, status: 'active' }];
+              });
+            } else if (event.event === 'node') {
+              setProgressSteps((prev) => {
+                const without = prev.filter((s) => s.id !== event.node);
+                const completed = without.map((s) => (s.status === 'active' ? { ...s, status: 'done' } : s));
+                return [...completed, { id: event.node, label: event.message, status: 'done' }];
+              });
+            } else if (event.event === 'complete') {
+              setProgressSteps((prev) =>
+                prev.map((s) => ({ ...s, status: 'done' }))
+              );
+              setResults(event.results);
+              setExpandedSections({
+                risk: false,
+                allocation: false,
+                behavior: false,
+                strategy: true,
+                executive: false,
+              });
+            }
+          } catch {
+            // ignore parse errors for partial chunks
+          }
+        }
+      }
     } catch (err) {
-      setError(err.response?.data?.detail || 'An error occurred during processing.');
+      setError(err.message || 'An error occurred during processing.');
     } finally {
       setLoading(false);
+      setProgressSteps([]);
     }
   };
 
@@ -912,6 +970,26 @@ function App() {
               )}
             </button>
 
+            {loading && progressSteps.length > 0 && (
+              <div className="pipeline-progress" role="status" aria-live="polite">
+                <p className="pipeline-progress-title">Pipeline progress</p>
+                <ul className="pipeline-progress-list">
+                  {progressSteps.map((step) => (
+                    <li key={step.id} className={`pipeline-progress-step pipeline-progress-step--${step.status}`}>
+                      {step.status === 'done' ? (
+                        <CheckCircle size={16} className="pipeline-progress-icon" aria-hidden />
+                      ) : step.status === 'active' ? (
+                        <Loader2 size={16} className="pipeline-progress-icon spin" aria-hidden />
+                      ) : (
+                        <Circle size={16} className="pipeline-progress-icon" aria-hidden />
+                      )}
+                      <span>{step.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {error && <p className="error-text">{error}</p>}
           </form>
         </section>
@@ -963,6 +1041,8 @@ function App() {
               );
             })}
           </div>
+
+          <AdvisoryChatbot advisoryResults={results} />
         </main>
       )}
     </div>
