@@ -100,10 +100,20 @@ def build_graph() -> StateGraph:
 
 # --- Pipeline Executor ---
 def run_advisory_pipeline(file_path: str, user_profile: dict) -> dict:
-    print(f"--- Starting Advisory Pipeline for {os.path.basename(file_path)} ---")
+    """Run the full pipeline and return final state. Use for non-streaming."""
+    for event in run_advisory_pipeline_stream(file_path, user_profile):
+        if event.get("event") == "complete":
+            return event["results"]
+    return {}
 
-    # 1. Deterministic Engine: Extract data
-    print("1. Extracting Deterministic Data...")
+
+def run_advisory_pipeline_stream(file_path: str, user_profile: dict):
+    """
+    Run the pipeline and yield progress events for streaming to the frontend.
+    Yields: {"event": "phase"|"node"|"complete", ...}
+    """
+    yield {"event": "phase", "phase": "extract", "message": "Extracting portfolio data..."}
+
     processor = PortfolioProcessor(file_path)
     processor.load_file()
     processor.clean_data()
@@ -115,8 +125,8 @@ def run_advisory_pipeline(file_path: str, user_profile: dict) -> dict:
     portfolio_json_str = processor.generate_final_output()
     portfolio_data = json.loads(portfolio_json_str)
 
-    # 2. Prepare State for LangGraph
-    print("\n2. Initializing Deep Agent State...")
+    yield {"event": "phase", "phase": "graph", "message": "Initializing multi-agent workflow..."}
+
     initial_state: PortfolioState = {
         "portfolio_json": portfolio_data,
         "user_profile": user_profile,
@@ -129,21 +139,64 @@ def run_advisory_pipeline(file_path: str, user_profile: dict) -> dict:
         "executive_summary": "",
     }
 
-    # 3. Build and Run the Graph
-    print("\n3. Executing LangGraph Multi-Agent Workflow...\n")
     graph = build_graph()
-
     result_state = initial_state.copy()
+
     for step in graph.stream(initial_state, stream_mode="updates"):
         for node_name, node_state in step.items():
-            print(f"[{node_name}] finished executing.")
             for key, value in node_state.items():
                 result_state[key] = value
+            yield {"event": "node", "node": node_name, "message": _node_display_name(node_name)}
 
-    return result_state
+    yield {"event": "complete", "results": result_state}
+
+
+def _node_display_name(node: str) -> str:
+    """Human-readable label for pipeline nodes."""
+    labels = {
+        "risk_agent": "Risk assessment",
+        "allocation_agent": "Allocation analysis",
+        "behavior_agent": "Behavioral analysis",
+        "strategy_agent": "Strategy recommendation",
+        "validation_agent": "Validation",
+        "executive_summary_agent": "Executive summary",
+    }
+    return labels.get(node, node.replace("_", " ").title())
+
+
+def print_graph_diagram() -> None:
+    """
+    Print the LangGraph workflow diagram.
+    - Mermaid: paste output at https://mermaid.live
+    - ASCII: requires `pip install grandalf`
+    - PNG: requires grandalf, saves to workflow_diagram.png
+    """
+    graph = build_graph()
+    mermaid = graph.get_graph().draw_mermaid()
+    print("\n========== WORKFLOW DIAGRAM (Mermaid) ==========")
+    print("Paste at https://mermaid.live to view interactively\n")
+    print(mermaid)
+    print("\n==================================================\n")
+    try:
+        ascii_diagram = graph.get_graph().draw_ascii()
+        print("========== ASCII DIAGRAM ==========\n")
+        print(ascii_diagram)
+    except ImportError:
+        print("(Install grandalf for ASCII/PNG: pip install grandalf)")
+    try:
+        png_bytes = graph.get_graph().draw_mermaid_png()
+        out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workflow_diagram.png")
+        with open(out_path, "wb") as f:
+            f.write(png_bytes)
+        print(f"\nPNG saved to: {out_path}")
+    except ImportError:
+        pass
 
 
 if __name__ == "__main__":
+    # Print workflow diagram (Mermaid → paste at mermaid.live)
+    print_graph_diagram()
+
     mock_user_profile = {
         "age": "35",
         "income": "₹35,00,000 / year",
