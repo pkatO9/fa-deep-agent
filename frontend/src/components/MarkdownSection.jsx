@@ -15,6 +15,7 @@ export function MarkdownSection({
   metricState = 'neutral',
   expanded = false,
   onToggle,
+  hideToggle = false,
 }) {
   const { summary, details } = useMemo(() => extractSummaryAndDetails(content), [content]);
   const isOpen = expanded;
@@ -30,16 +31,18 @@ export function MarkdownSection({
         </div>
         <div className="header-pill-group">
           {showFormattedBadge && <span className="format-badge">Formatted from structured response</span>}
-          <button
-            type="button"
-            className="toggle-details-btn"
-            onClick={() => onToggle(sectionId)}
-            aria-expanded={isOpen}
-            aria-controls={`${sectionId}-deep-dive`}
-          >
-            {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-            {isOpen ? 'Hide Details' : 'View Details'}
-          </button>
+          {!hideToggle && (
+            <button
+              type="button"
+              className="toggle-details-btn"
+              onClick={() => onToggle(sectionId)}
+              aria-expanded={isOpen}
+              aria-controls={`${sectionId}-deep-dive`}
+            >
+              {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              {isOpen ? 'Hide Details' : 'View Details'}
+            </button>
+          )}
         </div>
       </header>
 
@@ -70,6 +73,7 @@ MarkdownSection.propTypes = {
   metricState: PropTypes.oneOf(['neutral', 'positive', 'warn']),
   expanded: PropTypes.bool,
   onToggle: PropTypes.func.isRequired,
+  hideToggle: PropTypes.bool,
 };
 
 MarkdownSection.defaultProps = {
@@ -78,4 +82,5 @@ MarkdownSection.defaultProps = {
   showFormattedBadge: false,
   metricState: 'neutral',
   expanded: false,
+  hideToggle: false,
 };

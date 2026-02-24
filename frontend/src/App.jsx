@@ -1,73 +1,107 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { API_BASE } from './constants/config';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { InvestorIntakeForm } from './components/InvestorIntakeForm';
 import { PipelineProgress } from './components/PipelineProgress';
-import { ReportResults } from './components/ReportResults';
+import { OnboardingWizard } from './components/OnboardingWizard';
+import { AnalysisWorkspace } from './components/AnalysisWorkspace';
 import './App.css';
 
 const DEFAULT_PROFILE = {
+  role: 'Advisor',
+  objective: 'retirement_growth',
   age: '35',
   income: '₹35,00,000 / year',
   risk_appetite: 'Aggressive',
   goals: 'Early retirement by 45',
+  liquidity_horizon: '3-5 years',
+  tax_context: 'No special constraints',
+  risk_tolerance_confirmed: false,
 };
 
-const DEFAULT_EXPANDED = {
-  risk: false,
-  allocation: false,
-  behavior: false,
-  strategy: true,
-  executive: false,
-};
+function parseRoute(pathname) {
+  const clean = pathname.replace(/\/+$/, '') || '/';
+  if (clean === '/') return { page: 'onboarding' };
+  const match = clean.match(/^\/analysis\/([^/]+)(?:\/(overview|actions|scenarios|chat))?$/);
+  if (!match) return { page: 'onboarding' };
+  return { page: 'analysis', runId: match[1], tab: match[2] || 'overview' };
+}
+
+function pushRoute(nextPath) {
+  window.history.pushState({}, '', nextPath);
+}
 
 function App() {
+  const [route, setRoute] = useState(() => parseRoute(window.location.pathname));
   const [file, setFile] = useState(null);
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const [loading, setLoading] = useState(false);
   const [progressSteps, setProgressSteps] = useState([]);
-  const [results, setResults] = useState(null);
+  const [analysisRun, setAnalysisRun] = useState(null);
+  const [roleView, setRoleView] = useState('Advisor');
+  const [savedActions, setSavedActions] = useState([]);
   const [error, setError] = useState(null);
-  const [expandedSections, setExpandedSections] = useState(DEFAULT_EXPANDED);
 
-  const handleFileUpload = (e) => {
-    setFile(e.target.files[0]);
+  const activeTab = route.page === 'analysis' ? route.tab : 'overview';
+
+  useEffect(() => {
+    const handlePopState = () => setRoute(parseRoute(window.location.pathname));
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigate = useCallback((nextPath) => {
+    pushRoute(nextPath);
+    setRoute(parseRoute(nextPath));
+  }, []);
+
+  const startNewAnalysis = useCallback(() => {
+    setAnalysisRun(null);
+    setSavedActions([]);
     setError(null);
-  };
+    setProgressSteps([]);
+    navigate('/');
+  }, [navigate]);
 
-  const handleToggleSection = (sectionId) => {
-    setExpandedSections((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }));
-  };
+  const loadRun = useCallback(async (runId) => {
+    if (!runId) return;
+    if (analysisRun?.run_id === runId) return;
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await fetch(`${API_BASE}/analysis/${runId}`);
+      if (!response.ok) {
+        throw new Error(`Unable to load analysis (${response.status})`);
+      }
+      const payload = await response.json();
+      setAnalysisRun(payload);
+      const role = payload?.role_profile?.role === 'Investor' ? 'Investor' : 'Advisor';
+      setRoleView(role);
+    } catch (err) {
+      setError(err.message || 'Failed to load analysis.');
+      navigate('/');
+    } finally {
+      setLoading(false);
+    }
+  }, [analysisRun?.run_id, navigate]);
 
-  const expandAllSections = () => {
-    setExpandedSections({
-      risk: true,
-      allocation: true,
-      behavior: true,
-      strategy: true,
-      executive: true,
-    });
-  };
+  useEffect(() => {
+    if (route.page === 'analysis' && route.runId) {
+      loadRun(route.runId);
+    }
+  }, [route, loadRun]);
 
-  const collapseAllSections = () => {
-    setExpandedSections({
-      risk: false,
-      allocation: false,
-      behavior: false,
-      strategy: true,
-      executive: false,
-    });
-  };
+  const handleFileUpload = useCallback((uploadedFile) => {
+    setFile(uploadedFile);
+    setError(null);
+  }, []);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = useCallback(async () => {
     if (!file) {
-      setError('Please upload a portfolio file');
+      setError('Please upload a portfolio workbook.');
       return;
     }
 
     setLoading(true);
-    setResults(null);
     setError(null);
     setProgressSteps([]);
 
@@ -81,16 +115,9 @@ function App() {
         body: formData,
       });
 
-      if (!response.ok) {
+      if (!response.ok || !response.body) {
         const text = await response.text();
-        let detail = `HTTP ${response.status}`;
-        try {
-          const errBody = JSON.parse(text);
-          detail = errBody.detail || detail;
-        } catch {
-          if (text) detail = text.slice(0, 200);
-        }
-        throw new Error(detail);
+        throw new Error(text || `HTTP ${response.status}`);
       }
 
       const reader = response.body.getReader();
@@ -100,6 +127,7 @@ function App() {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n\n');
         buffer = lines.pop() || '';
@@ -107,68 +135,91 @@ function App() {
         for (const chunk of lines) {
           const match = chunk.match(/^data:\s*(.+)$/m);
           if (!match) continue;
-          try {
-            const event = JSON.parse(match[1]);
-            if (event.event === 'phase') {
-              setProgressSteps((prev) => {
-                const markedDone = prev.map((s) => (s.status === 'active' ? { ...s, status: 'done' } : s));
-                const without = markedDone.filter((s) => s.id !== event.phase);
-                return [...without, { id: event.phase, label: event.message, status: 'active' }];
-              });
-            } else if (event.event === 'node') {
-              setProgressSteps((prev) => {
-                const without = prev.filter((s) => s.id !== event.node);
-                const completed = without.map((s) => (s.status === 'active' ? { ...s, status: 'done' } : s));
-                return [...completed, { id: event.node, label: event.message, status: 'done' }];
-              });
-            } else if (event.event === 'complete') {
-              setProgressSteps((prev) => prev.map((s) => ({ ...s, status: 'done' })));
-              setResults(event.results);
-              setExpandedSections(DEFAULT_EXPANDED);
-            }
-          } catch {
-            // ignore parse errors for partial chunks
+          const event = JSON.parse(match[1]);
+          if (event.event === 'phase') {
+            setProgressSteps((prev) => {
+              const markedDone = prev.map((s) => (s.status === 'active' ? { ...s, status: 'done' } : s));
+              const without = markedDone.filter((s) => s.id !== event.phase);
+              return [...without, { id: event.phase, label: event.message, status: 'active' }];
+            });
+          } else if (event.event === 'node') {
+            setProgressSteps((prev) => {
+              const without = prev.filter((s) => s.id !== event.node);
+              const completed = without.map((s) => (s.status === 'active' ? { ...s, status: 'done' } : s));
+              return [...completed, { id: event.node, label: event.message, status: 'done' }];
+            });
+          } else if (event.event === 'complete') {
+            const payload = {
+              run_id: event.run_id,
+              created_at: event.created_at,
+              role_profile: event.role_profile,
+              results: event.results,
+            };
+            setProgressSteps((prev) => prev.map((s) => ({ ...s, status: 'done' })));
+            setAnalysisRun(payload);
+            setRoleView(payload?.role_profile?.role === 'Investor' ? 'Investor' : 'Advisor');
+            navigate(`/analysis/${payload.run_id}/overview`);
           }
         }
       }
     } catch (err) {
-      setError(err.message || 'An error occurred during processing.');
+      setError(err.message || 'Analysis failed.');
     } finally {
       setLoading(false);
       setProgressSteps([]);
     }
-  };
+  }, [file, navigate, profile]);
+
+  const addSavedAction = useCallback((actionText) => {
+    if (!actionText) return;
+    setSavedActions((prev) => {
+      if (prev.includes(actionText)) return prev;
+      return [...prev, actionText];
+    });
+  }, []);
+
+  const shellClass = useMemo(
+    () => `app-shell ${route.page === 'analysis' ? 'analysis-shell' : 'onboarding-shell'}`,
+    [route.page]
+  );
 
   return (
     <ErrorBoundary>
-      <div className="app-shell">
+      <div className={shellClass}>
         <header className="hero">
-        <p className="kicker">Private Wealth Office</p>
-        <h1>Portfolio Deep Advisor</h1>
-        <p className="subtitle">Precision multi-agent advisory, presented in client-ready markdown reports.</p>
-      </header>
+          <p className="kicker">Private Wealth Office</p>
+          <h1>Portfolio Deep Advisor</h1>
+          <p className="subtitle">Role-aware advisory intelligence for advisors and investors.</p>
+        </header>
 
-      {loading ? (
-        <PipelineProgress progressSteps={progressSteps} error={error} />
-      ) : !results ? (
-        <InvestorIntakeForm
-          profile={profile}
-          setProfile={setProfile}
-          file={file}
-          onFileUpload={handleFileUpload}
-          onSubmit={handleSubmit}
-          error={error}
-        />
-      ) : (
-        <ReportResults
-          results={results}
-          expandedSections={expandedSections}
-          onToggleSection={handleToggleSection}
-          onExpandAll={expandAllSections}
-          onCollapseAll={collapseAllSections}
-          onNewAnalysis={() => setResults(null)}
-        />
-      )}
+        {loading ? (
+          <PipelineProgress progressSteps={progressSteps} error={error} />
+        ) : route.page === 'onboarding' ? (
+          <OnboardingWizard
+            profile={profile}
+            setProfile={setProfile}
+            file={file}
+            onFileUpload={handleFileUpload}
+            onSubmit={handleSubmit}
+            error={error}
+          />
+        ) : analysisRun ? (
+          <AnalysisWorkspace
+            run={analysisRun}
+            activeTab={activeTab}
+            roleView={roleView}
+            onRoleViewChange={setRoleView}
+            onNavigateTab={(tab) => navigate(`/analysis/${analysisRun.run_id}/${tab}`)}
+            onNewAnalysis={startNewAnalysis}
+            savedActions={savedActions}
+            onSaveAction={addSavedAction}
+          />
+        ) : (
+          <section className="panel form-panel">
+            <p className="error-text" role="alert">{error || 'Analysis not found.'}</p>
+            <button type="button" className="primary-button" onClick={startNewAnalysis}>Start New Analysis</button>
+          </section>
+        )}
       </div>
     </ErrorBoundary>
   );

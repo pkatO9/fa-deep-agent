@@ -2,11 +2,13 @@ import json
 import os
 import shutil
 import tempfile
+import uuid
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from main import run_advisory_pipeline, run_advisory_pipeline_stream
 
@@ -31,15 +33,21 @@ class UserProfile(BaseModel):
 class ChatRequest(BaseModel):
     """Request body for /chat endpoint."""
 
-    advisory_results: dict  # Full pipeline output (state)
+    run_id: str
     message: str
-    history: list[dict] = []  # [{role: "user"|"assistant", content: str}]
+    history: list[dict] = Field(default_factory=list)  # [{role: "user"|"assistant", content: str}]
 
 
 class ChatResponse(BaseModel):
     """Response from /chat endpoint."""
 
     reply: str
+    confidence: str
+    sources: list[str]
+    suggested_actions: list[str]
+
+
+RUNS: dict[str, dict] = {}
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -48,14 +56,20 @@ async def chat(request: ChatRequest):
     Chat with the advisory context. Requires advisory_results from a prior /upload.
     """
     try:
-        from chat_service import chat_with_context
+        run_payload = RUNS.get(request.run_id)
+        if not run_payload:
+            raise HTTPException(status_code=404, detail="Run not found")
 
-        reply = chat_with_context(
-            state=request.advisory_results,
+        from chat_service import chat_with_context_response
+
+        response_payload = chat_with_context_response(
+            state=run_payload["results"],
             user_message=request.message,
             history=request.history,
         )
-        return ChatResponse(reply=reply)
+        return ChatResponse(**response_payload)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -63,8 +77,27 @@ async def chat(request: ChatRequest):
 def _upload_stream_generator(tmp_path: str, profile_dict: dict):
     """Generator that yields SSE events from the pipeline stream."""
     try:
+        run_id = str(uuid.uuid4())
+        created_at = datetime.now(timezone.utc).isoformat()
+        final_results = None
         for event in run_advisory_pipeline_stream(tmp_path, profile_dict):
-            yield f"data: {json.dumps(event)}\n\n"
+            if event.get("event") == "complete":
+                final_results = event.get("results", {})
+                run_payload = {
+                    "run_id": run_id,
+                    "created_at": created_at,
+                    "role_profile": {
+                        "role": profile_dict.get("role", "Investor"),
+                        "objective": profile_dict.get("objective", "general_planning"),
+                        "liquidity_horizon": profile_dict.get("liquidity_horizon"),
+                        "tax_context": profile_dict.get("tax_context"),
+                    },
+                    "results": final_results,
+                }
+                RUNS[run_id] = run_payload
+                yield f"data: {json.dumps({'event': 'complete', **run_payload})}\n\n"
+            else:
+                yield f"data: {json.dumps(event)}\n\n"
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
@@ -114,17 +147,37 @@ async def upload_portfolio(
             shutil.copyfileobj(file.file, tmp)
             tmp_path = tmp.name
         
-        # Run the advisory pipeline
-        # Note: In a production app, this should be async or offloaded to a worker
         results = run_advisory_pipeline(tmp_path, profile_dict)
+        run_id = str(uuid.uuid4())
+        created_at = datetime.now(timezone.utc).isoformat()
+        run_payload = {
+            "run_id": run_id,
+            "created_at": created_at,
+            "role_profile": {
+                "role": profile_dict.get("role", "Investor"),
+                "objective": profile_dict.get("objective", "general_planning"),
+                "liquidity_horizon": profile_dict.get("liquidity_horizon"),
+                "tax_context": profile_dict.get("tax_context"),
+            },
+            "results": results,
+        }
+        RUNS[run_id] = run_payload
         
         # Cleanup
         os.unlink(tmp_path)
         
-        return results
+        return run_payload
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/analysis/{run_id}")
+async def get_analysis(run_id: str):
+    run_payload = RUNS.get(run_id)
+    if not run_payload:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run_payload
 
 @app.get("/health")
 async def health_check():
